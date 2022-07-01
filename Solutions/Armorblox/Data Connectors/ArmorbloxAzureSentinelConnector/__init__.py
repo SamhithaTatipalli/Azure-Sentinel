@@ -7,9 +7,9 @@ import hmac
 import requests
 import re
 import os
+from armorblox.client import Client as BaseClient
 import logging
-
-from urllib.parse import urlparse
+# from urllib.parse import urlparse
 from .state_manager import StateManager
 
 ARMORBLOX_API_TOKEN = os.environ["ArmorbloxAPIToken"]
@@ -35,12 +35,13 @@ if not match:
     raise Exception("Armorblox Data Connector: Invalid Log Analytics URI")
 
 if (ARMORBLOX_INSTANCE_NAME == "") and (ARMORBLOX_INSTANCE_URL == ""):
-   raise Exception("At least one of Armorblox instance name or URL need to be provided")
+    raise Exception("At least one of Armorblox instance name or URL need to be provided")
 
 
-class Armorblox:
+class Armorblox(BaseClient):
 
-    def __init__(self):
+    def __init__(self, api_key, instance_name=None, instance_url=None):
+        super().__init__(api_key=api_key, instance_name=instance_name, instance_url=instance_url)
         self.incidents_list = []
         self.from_date, self.to_date = self.generate_date()
 
@@ -59,40 +60,22 @@ class Armorblox:
         state.post(current_time.strftime(ARMORBLOX_INCIDENT_API_TIME_FORMAT))
         return past_time, current_time.strftime(ARMORBLOX_INCIDENT_API_TIME_FORMAT)
 
-    def _process_incidents(self, url, headers, params):
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            response_json = response.json()
-            next_page_token = response_json.get("next_page_token", None)
+    def _process_incidents(self, params):
+        response_json, _ = self.incidents.list_resource(ARMORBLOX_INCIDENT_API_PATH, params=params)
+        if response_json is None:
+            pass
+        else:
             self.incidents_list.extend(response_json.get("incidents", []))
-            if next_page_token is not None:
-                params["page_token"] = next_page_token
-                self._process_incidents(url, headers, params)
 
     def get_incidents(self):
+
         params = {
             "from_date": self.from_date,
             "to_date": self.to_date,
             "page_size": ARMORBLOX_INCIDENT_API_PAGE_SIZE
         }
 
-        headers = {
-            "x-ab-authorization": ARMORBLOX_API_TOKEN,
-            "Content-Type": "application/json",
-        }
-
-        url = ""
-        if ARMORBLOX_INSTANCE_URL:
-            tenant_name = urlparse(ARMORBLOX_INSTANCE_URL).netloc.split(".")[0]
-            path = ARMORBLOX_INCIDENT_API_PATH.format(tenant_name)
-            if not ARMORBLOX_INSTANCE_URL.endswith("/"):
-                path = "/" + path
-
-            url = ARMORBLOX_INSTANCE_URL + path
-        else:
-            url = "https://{}.armorblox.io/{}".format(ARMORBLOX_INSTANCE_NAME, ARMORBLOX_INCIDENT_API_PATH.format(ARMORBLOX_INSTANCE_NAME))
-
-        self._process_incidents(url, headers, params)
+        self._process_incidents(params)
         return self.incidents_list
 
 
@@ -154,7 +137,8 @@ def main(mytimer: func.TimerRequest) -> None:
 
     logging.info("Python timer trigger function ran at %s", utc_timestamp)
 
-    armorblox = Armorblox()
+    armorblox = Armorblox(ARMORBLOX_API_TOKEN,ARMORBLOX_INSTANCE_NAME)
     sentinel = Sentinel()
     incidents_list = armorblox.get_incidents()
     sentinel.gen_chunks(incidents_list)
+

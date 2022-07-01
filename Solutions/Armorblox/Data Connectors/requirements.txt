@@ -5,3 +5,4 @@
 azure-storage-file-share==12.5.0
 azure-functions
 requests
+git+https://github.com/armorblox/armorblox-python-sdk@423196d9e9cd18bcdd280f81f9f1d60e4a1f2c62#egg=armorblox
